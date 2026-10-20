@@ -1,0 +1,2617 @@
+openapi: 3.0.3
+info:
+  title: Персональная бизнес-аналитика — API
+  version: 1.1.0
+  description: 'Проект API по ТЗ «Новостная аналитика для принятия бизнес-решений» (19 страниц).
+
+    Методы, имена полей, авторизация, пагинация и асинхронные задачи — проектные решения, поскольку ТЗ не задает
+    HTTP-контракт.
+
+    Базовый сценарий: POST /auth/register или POST /auth/login → GET /me → GET /companies → PUT preferences → GET
+    context → POST digests → GET jobs → GET digest → POST questions → GET jobs → GET answer.
+
+    По отдельному требованию пользователя добавлена собственная регистрация и авторизация прототипа по email/паролю.
+    Интеграция с банковской авторизацией не предполагается. Access-токен JWT действует 15 минут и передается как
+    Authorization: Bearer <accessToken>. Refresh-токен непрозрачный, одноразовый при обновлении, хранится на сервере
+    в виде хеша; срок сессии не более 30 дней. JWT проверяется вместе со статусом серверной сессии при каждом запросе,
+    чтобы выход и отзыв вступали в силу сразу. Токены и пароли передаются только по HTTPS и не попадают в логи;
+    ответы с токенами имеют Cache-Control: no-store.
+
+    Каждый объект проверяется по пользователю и доступным компаниям; неизвестный и недоступный ID дают одинаковый
+    404. Для scope=group необходим доступ ко всем участникам группы. Регистрация не дает доступа к компаниям: оператор
+    назначает его через серверную конфигурацию/начальные данные. Для проверки полного сценария необходимо назначить
+    зарегистрированному пользователю доступ к тестовым компаниям.
+
+    Сводки и ответы персональны; роль ЛПР не равна роли доступа. Все даты — RFC 3339 с часовым поясом. Все списки
+    используют cursor/limit, null в nextCursor означает конец. Неизвестные значения не подменяются нулями и ложными
+    фактами.
+
+    Факты, аналитика банка и выводы модели разделяются. Каждый вывод имеет проверяемые основания. Работа с неполными/противоречивыми
+    данными отражается через limitations и статусы качества.
+
+    Оркестрация, лимит 500 руб./сутки на команду и выбор только разрешенных ТЗ LLM реализуются на сервере; клиент
+    не передает ключи и не выбирает произвольную модель. Имена моделей берутся из конфигурации провайдера, соответствующей
+    списку ТЗ. Вызовы инструментов журналируются и ограничиваются правами/allowlist; текст материалов считается
+    данными, а не командами.
+
+    Банковские действия и покупки не выполняются: API возвращает возможные направления действий. Отдельные загрузочные
+    ручки доступны оператору; клиентские данные и общие ключи не попадают в публичные логи.
+
+    URI сервера /api/v1 — условный путь для реализации; работающий backend этой спецификацией не создается.'
+servers:
+- url: /api/v1
+  description: Относительно адреса развернутого backend
+security:
+- bearerAuth: []
+tags:
+- name: Авторизация
+- name: Пользователь
+- name: Компании
+- name: Сводки
+- name: Диалог
+- name: Материалы
+- name: Обратная связь
+- name: Задачи
+- name: Диагностика
+- name: Загрузка данных
+paths:
+  /auth/register:
+    post:
+      tags:
+      - Авторизация
+      summary: Зарегистрироваться в сервисе
+      operationId: register
+      description: Создает локальную учетную запись и сразу возвращает пользователя и пару токенов. При занятом
+        нормализованном email — 409 с code=EMAIL_ALREADY_REGISTERED. Пользователь получает analytics:read и analytics:write,
+        но не административные права. Доступ к компаниям назначается оператором в серверной конфигурации/начальных
+        данных; клиент не может назначить себе компанию или права. До назначения GET /companies возвращает пустой
+        список. Подтверждение email в этом контракте прототипа не предусмотрено; email не служит доказательством
+        принадлежности компании.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: user@example.com
+              password: Example-Only-7vQ9!
+              displayName: Пользователь
+      responses:
+        '201':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+              description: Не сохранять ответ с токенами в кеше.
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+        '409':
+          $ref: '#/components/responses/E409'
+      security: []
+  /auth/login:
+    post:
+      tags:
+      - Авторизация
+      summary: Войти по email и паролю
+      operationId: login
+      description: Создает отдельную сессию сервиса и возвращает пользователя и пару токенов. Неизвестный email
+        и неверный пароль дают одинаковый 401 с code=INVALID_CREDENTIALS. Ограничение частоты попыток — 429. Банковские
+        учетные данные не используются.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: user@example.com
+              password: Example-Only-7vQ9!
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+              description: Не сохранять ответ с токенами в кеше.
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+      security: []
+  /auth/refresh:
+    post:
+      tags:
+      - Авторизация
+      summary: Обновить пару токенов
+      operationId: refreshTokens
+      description: Bearer-токен не нужен. Действующий refresh-токен атомарно заменяется новой парой, прежний становится
+        недействительным. Абсолютный срок сессии 30 дней не продлевается. Истекший или отозванный токен — 401 с
+        code=INVALID_REFRESH_TOKEN. Повторное использование уже замененного токена отзывает всю его сессию. Клиент
+        выполняет обновление последовательно, без параллельных повторов.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refreshToken: example-refresh-token
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+      security: []
+  /auth/logout:
+    post:
+      tags:
+      - Авторизация
+      summary: Выйти из текущей сессии
+      operationId: logout
+      description: По access-токену отзывает текущую сессию, включая все выпущенные в ней access- и refresh-токены.
+        Другие сессии пользователя остаются активными. Для выхода после истечения access-токена сначала вызвать
+        refresh. Клиент удаляет локально сохраненные токены.
+      responses:
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+        '204':
+          description: Сессия отозвана. Тело ответа отсутствует.
+  /me:
+    get:
+      tags:
+      - Пользователь
+      summary: Текущий пользователь и права
+      operationId: getCurrentUser
+      description: Пользователь определяется по access-токену нашего сервиса, полученному при регистрации или входе.
+        Невалидный, истекший токен либо отозванная сессия — 401.
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies:
+    get:
+      tags:
+      - Компании
+      summary: Доступные пользователю компании
+      operationId: listCompanies
+      description: Возвращаются только компании в области доступа пользователя. Порядок по id; фильтр q ищет по
+        условному имени, ID и ОКВЭД.
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Непрозрачный курсор. При смене фильтров начинать с первой страницы.
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 200
+      - name: groupId
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyPage'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}:
+    get:
+      tags:
+      - Компании
+      summary: Карточка компании
+      operationId: getCompany
+      parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}/preferences:
+    get:
+      tags:
+      - Пользователь
+      summary: Настройки персонализации
+      operationId: getPreferences
+      description: Настройки изолированы по паре пользователь + компания; до сохранения сервер возвращает role=other,
+        scope=company, пустые topics и regions.
+      parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+    put:
+      tags:
+      - Пользователь
+      summary: Сохранить настройки персонализации
+      operationId: replacePreferences
+      description: Полная замена настроек текущего пользователя. Право analytics:write. Не меняет уже созданные
+        сводки.
+      parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Preferences'
+            example:
+              role: cfo
+              topics:
+              - кредитование
+              - сырье
+              regions: []
+              scope: company
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferences'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}/context:
+    get:
+      tags:
+      - Компании
+      summary: Бизнес-контекст и качество данных
+      operationId: getCompanyContext
+      description: Для scope=group требуется доступ ко всей группе. Если компания не входит в группу — 422. Изменение
+        версии данных дает новую версию контекста.
+      parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: scope
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - company
+          - group
+          default: company
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyContext'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}/relations:
+    get:
+      tags:
+      - Компании
+      summary: Платежные, групповые и косвенные связи
+      operationId: listCompanyRelations
+      description: Только связи, разрешенные пользователю. Порядок по id. Не раскрывает физлиц и недоступных контрагентов.
+      parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Непрозрачный курсор. При смене фильтров начинать с первой страницы.
+      - name: type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - payment
+          - same_group
+          - shared_person
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationPage'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}/digests:
+    post:
+      tags:
+      - Сводки
+      summary: Запустить персональную сводку
+      operationId: createDigest
+      description: Право analytics:write. Агент планирует анализ, получает контекст, ищет внешние новости и аналитику
+        банка, классифицирует и объединяет дубликаты, ранжирует события, формирует выводы и проверяет их. При необходимости
+        повторяет поиск. Профиль пользователя берется из его настроек. Значимые ограничения возвращаются в результате.
+      parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description: 'Повтор с тем же телом и ключом в течение 24 часов возвращает ту же задачу; другое тело — 409.
+          Область: пользователь, путь и метод.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DigestRequest'
+            example:
+              scope: company
+              period:
+                from: '2026-10-01T00:00:00+03:00'
+                to: '2026-10-22T00:00:00+03:00'
+              maxItems: 10
+      responses:
+        '202':
+          description: Задача принята. Опросить GET /jobs/{jobId}; при succeeded перейти по result.href.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          headers:
+            Location:
+              description: Относительный URL задачи с учетом /api/v1.
+              schema:
+                type: string
+            Retry-After:
+              description: Рекомендуемый интервал опроса в секундах.
+              schema:
+                type: integer
+                minimum: 1
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+        '409':
+          $ref: '#/components/responses/E409'
+    get:
+      tags:
+      - Сводки
+      summary: История сводок текущего пользователя
+      operationId: listDigests
+      description: Порядок createdAt DESC, id DESC. Сводки других пользователей недоступны даже в той же компании.
+      parameters:
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Непрозрачный курсор. При смене фильтров начинать с первой страницы.
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DigestPage'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}/digests/{digestId}:
+    get:
+      tags:
+      - Сводки
+      summary: Получить сводку с интерпретациями и основаниями
+      operationId: getDigest
+      description: 'Результат готовой задачи. Порядок items: relevanceScore DESC, id ASC. Риски, возможности, рекомендации,
+        позиция банка и факты разделены. Сводка принадлежит текущему пользователю и companyId.'
+      parameters:
+      - name: digestId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Digest'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}/digests/{digestId}/questions:
+    post:
+      tags:
+      - Диалог
+      summary: Задать уточняющий вопрос или изменить разрез
+      operationId: askDigestQuestion
+      description: Право analytics:write. Новая агентная задача на основе неизменяемого контекста сводки и, если
+        нужно, дополнительных источников. Для продолжения диалога передать parentAnswerId. Любые ID должны принадлежать
+        этой сводке и текущему пользователю.
+      parameters:
+      - name: digestId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description: 'Повтор с тем же телом и ключом в течение 24 часов возвращает ту же задачу; другое тело — 409.
+          Область: пользователь, путь и метод.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+            example:
+              question: Как эти события могут повлиять на денежный поток компании?
+              perspective: cash_flow
+      responses:
+        '202':
+          description: Задача принята. Опросить GET /jobs/{jobId}; при succeeded перейти по result.href.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          headers:
+            Location:
+              description: Относительный URL задачи с учетом /api/v1.
+              schema:
+                type: string
+            Retry-After:
+              description: Рекомендуемый интервал опроса в секундах.
+              schema:
+                type: integer
+                minimum: 1
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+        '409':
+          $ref: '#/components/responses/E409'
+  /companies/{companyId}/digests/{digestId}/answers/{answerId}:
+    get:
+      tags:
+      - Диалог
+      summary: Получить ответ с источниками
+      operationId: getAnswer
+      parameters:
+      - name: answerId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: digestId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Answer'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /companies/{companyId}/digests/{digestId}/feedback:
+    post:
+      tags:
+      - Обратная связь
+      summary: Оценить интерпретацию или ответ
+      operationId: createFeedback
+      description: Право analytics:write. Оценка используется для мониторинга качества. Повторный POST создает отдельную
+        запись; агрегатор учитывает последнюю оценку пользователя для цели.
+      parameters:
+      - name: digestId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: companyId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+            example:
+              targetType: insight
+              targetId: insight-example-1
+              rating: not_useful
+              reasons:
+              - missing_source
+              comment: Не хватает ссылки на основание вывода.
+      responses:
+        '201':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feedback'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /materials:
+    get:
+      tags:
+      - Материалы
+      summary: Поиск по доступным новостям и аналитике банка
+      operationId: listMaterials
+      description: Порядок publishedAt DESC NULLS LAST, id ASC. publishedFrom включительно, publishedTo исключительно.
+        Только материалы в пределах прав пользователя; эти фильтры не заменяют персональное ранжирование сводки.
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Непрозрачный курсор. При смене фильтров начинать с первой страницы.
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 500
+      - name: kind
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - external_news
+          - bank_analytics
+      - name: publishedFrom
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - name: publishedTo
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialPage'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /materials/{materialId}:
+    get:
+      tags:
+      - Материалы
+      summary: Открыть первоисточник или его разрешенный текст
+      operationId: getMaterial
+      description: Без version — актуальная версия; с version — точная версия из Citation. Нет доступа — 404. Удаленная
+        недоступная версия — 404, сохраненная разрешенная выдержка остается в Citation.
+      parameters:
+      - name: materialId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: version
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /jobs/{jobId}:
+    get:
+      tags:
+      - Задачи
+      summary: Статус фоновой операции
+      operationId: getJob
+      description: Задачи принадлежат пользователю, создавшему их. Право на результат и companyId повторно проверяется
+        при чтении. После succeeded result.href указывает на сводку, ответ или отчет импорта.
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /runs/{runId}/trace:
+    get:
+      tags:
+      - Диагностика
+      summary: Трассировка шагов агентного анализа
+      operationId: getRunTrace
+      description: Требуется traces:read и доступ к компании/сводке. Возвращает основания, инструменты и краткие
+        результаты этапов, включая повторный поиск и самопроверку.
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunTrace'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+  /admin/sources:
+    get:
+      tags:
+      - Загрузка данных
+      summary: Разрешенные источники парсера
+      operationId: listIngestionSources
+      description: Требуется ingestion:write. Источники настраиваются оператором сервера; банковская аналитика маркируется
+        отдельно от внешних новостей.
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Непрозрачный курсор. При смене фильтров начинать с первой страницы.
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcePage'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+      x-required-permission: ingestion:write
+  /admin/material-ingestions:
+    post:
+      tags:
+      - Загрузка данных
+      summary: Собрать и обработать свежие материалы
+      operationId: startMaterialIngestion
+      description: Требуется ingestion:write. Парсер забирает материалы из allowlist, извлекает текст и ключевые
+        сведения, классифицирует и устраняет дубликаты. Новые материалы доступны последующим сводкам. Ошибка отдельного
+        источника отражается в отчете; полный отказ — failed.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description: 'Повтор с тем же телом и ключом в течение 24 часов возвращает ту же задачу; другое тело — 409.
+          Область: пользователь, путь и метод.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestionRequest'
+            example:
+              sourceIds:
+              - configured-source-1
+      responses:
+        '202':
+          description: Задача принята. Опросить GET /jobs/{jobId}; при succeeded перейти по result.href.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          headers:
+            Location:
+              description: Относительный URL задачи с учетом /api/v1.
+              schema:
+                type: string
+            Retry-After:
+              description: Рекомендуемый интервал опроса в секундах.
+              schema:
+                type: integer
+                minimum: 1
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+        '409':
+          $ref: '#/components/responses/E409'
+      x-required-permission: ingestion:write
+  /admin/dataset-imports:
+    post:
+      tags:
+      - Загрузка данных
+      summary: Загрузить обезличенные CSV компаний и связей
+      operationId: importClientDatasets
+      description: Требуется ingestion:write. Валидация UTF-8 CSV, заголовков и ссылочной целостности. В ТЗ имя
+        файла платежей совпало с personLinks, поэтому файлы передаются отдельными полями по структуре. Импорт атомарно
+        публикует новую версию, не меняя снимки существующих сводок. Размер каждого файла до 50 МиБ; при превышении
+        — 413. Повтор datasetVersion с иными данными — 409. Для multipart идемпотентность сравнивает SHA-256 файлов
+        и текстовые поля.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description: 'Повтор с тем же телом и ключом в течение 24 часов возвращает ту же задачу; другое тело — 409.
+          Область: пользователь, путь и метод.'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                companies:
+                  type: string
+                  format: binary
+                  description: df_Uid_data_hack.csv
+                personLinks:
+                  type: string
+                  format: binary
+                  description: df_Fid_Uid_link_hack.csv
+                payments:
+                  type: string
+                  format: binary
+                  description: CSV с BENEFICIARY, PAYER, PAY_AMT, PAY_CNT.
+                datasetVersion:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+              required:
+              - companies
+              - personLinks
+              - payments
+              - datasetVersion
+      responses:
+        '202':
+          description: Задача принята. Опросить GET /jobs/{jobId}; при succeeded перейти по result.href.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+          headers:
+            Location:
+              description: Относительный URL задачи с учетом /api/v1.
+              schema:
+                type: string
+            Retry-After:
+              description: Рекомендуемый интервал опроса в секундах.
+              schema:
+                type: integer
+                minimum: 1
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+        '409':
+          $ref: '#/components/responses/E409'
+        '413':
+          $ref: '#/components/responses/E413'
+      x-required-permission: ingestion:write
+  /admin/ingestion-reports/{reportId}:
+    get:
+      tags:
+      - Загрузка данных
+      summary: Результат сбора материалов или импорта CSV
+      operationId: getIngestionReport
+      description: Требуется ingestion:write. CSV-ошибки и предупреждения возвращаются без раскрытия строк с чувствительными
+        данными.
+      parameters:
+      - name: reportId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestionReport'
+        '400':
+          $ref: '#/components/responses/E400'
+        '401':
+          $ref: '#/components/responses/E401'
+        '403':
+          $ref: '#/components/responses/E403'
+        '404':
+          $ref: '#/components/responses/E404'
+        '422':
+          $ref: '#/components/responses/E422'
+        '429':
+          $ref: '#/components/responses/E429'
+        '500':
+          $ref: '#/components/responses/E500'
+        '503':
+          $ref: '#/components/responses/E503'
+      x-required-permission: ingestion:write
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access-токен нашего сервиса из POST /auth/register, POST /auth/login или POST /auth/refresh.
+        В Swagger Authorize вводится только токен без префикса Bearer.
+  responses:
+    E400:
+      description: Невалидный синтаксис запроса или курсор
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E401:
+      description: Неверные учетные данные, недействительный токен или отозванная сессия
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E403:
+      description: Недостаточно прав для операции
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E404:
+      description: Объект не найден или недоступен пользователю
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E409:
+      description: Email уже зарегистрирован, конфликт версии данных или ключа идемпотентности
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E413:
+      description: Превышен лимит размера файла
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E422:
+      description: Некорректные значения полей, диапазон дат или межобъектные ссылки
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E429:
+      description: Превышен лимит запросов или бюджет LLM
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        Retry-After:
+          description: Когда можно повторить запрос, в секундах.
+          schema:
+            type: integer
+            minimum: 1
+    E500:
+      description: Внутренняя ошибка сервиса
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    E503:
+      description: Источник, очередь или модель временно недоступны
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        Retry-After:
+          description: Когда можно повторить запрос, в секундах.
+          schema:
+            type: integer
+            minimum: 1
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+            required:
+            - message
+      required:
+      - code
+      - message
+      - requestId
+    User:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+            enum:
+            - analytics:read
+            - analytics:write
+            - ingestion:write
+            - traces:read
+      required:
+      - id
+      - email
+      - displayName
+      - permissions
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Адрес для входа. Пробелы по краям удаляются, адрес приводится к нижнему регистру; уникальность
+            проверяется после нормализации.
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 128
+          writeOnly: true
+          description: Пароль локальной учетной записи сервиса. Не обрезается и не нормализуется. Хранится на сервере
+            только в виде стойкого хеша с солью; не возвращается и не журналируется.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Не может состоять только из пробелов.
+      required:
+      - email
+      - password
+      - displayName
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Адрес для входа. Пробелы по краям удаляются, адрес приводится к нижнему регистру; уникальность
+            проверяется после нормализации.
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 128
+          writeOnly: true
+          description: Пароль локальной учетной записи сервиса. Не обрезается и не нормализуется. Хранится на сервере
+            только в виде стойкого хеша с солью; не возвращается и не журналируется.
+      required:
+      - email
+      - password
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: Refresh-токен, полученный от сервиса. Секретное значение; не журналируется.
+      required:
+      - refreshToken
+    TokenPair:
+      type: object
+      additionalProperties: false
+      properties:
+        accessToken:
+          type: string
+          readOnly: true
+        refreshToken:
+          type: string
+          readOnly: true
+        tokenType:
+          type: string
+          enum:
+          - Bearer
+        expiresIn:
+          type: integer
+          enum:
+          - 900
+          description: Время жизни access-токена в секундах.
+        refreshExpiresIn:
+          type: integer
+          minimum: 1
+          maximum: 2592000
+          description: Оставшееся время до абсолютного истечения сессии (не более 30 дней) в секундах.
+      required:
+      - accessToken
+      - refreshToken
+      - tokenType
+      - expiresIn
+      - refreshExpiresIn
+    AuthResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+      required:
+      - user
+      - tokens
+    Company:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: SYNTHETIC_U из набора данных.
+        displayName:
+          type: string
+          description: Условное имя для интерфейса, не реальное название компании.
+        groupId:
+          type: string
+          nullable: true
+        mainOkvedCode:
+          type: string
+          nullable: true
+        mainOkvedName:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+      required:
+      - id
+      - displayName
+    CompanyPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Company'
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+      - items
+      - nextCursor
+    Preferences:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: string
+          enum:
+          - owner
+          - ceo
+          - cfo
+          - chief_accountant
+          - treasurer
+          - other
+        topics:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+        regions:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+        scope:
+          type: string
+          enum:
+          - company
+          - group
+      required:
+      - role
+      - topics
+      - regions
+      - scope
+      description: Настройки текущего пользователя для выбранной компании. Списки пусты — дополнительные ограничения
+        отсутствуют. Роль ЛПР влияет на персонализацию, но не дает прав доступа.
+    Feature:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+        value:
+          type: string
+          nullable: true
+          description: Нормализованное текстовое значение. null означает отсутствие данных.
+        origin:
+          type: string
+          enum:
+          - dataset
+          - derived
+        sourceField:
+          type: string
+          nullable: true
+        datasetVersion:
+          type: string
+        observedAt:
+          type: string
+          format: date-time
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        missingReason:
+          type: string
+          nullable: true
+      required:
+      - id
+      - name
+      - value
+      - origin
+      - datasetVersion
+      - confidence
+    CompanyContext:
+      type: object
+      additionalProperties: false
+      properties:
+        companyId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        scope:
+          type: string
+          enum:
+          - company
+          - group
+        version:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        summary:
+          type: string
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/Feature'
+        dataQuality:
+          type: string
+          enum:
+          - sufficient
+          - partial
+          - insufficient
+        limitations:
+          type: array
+          items:
+            type: string
+      required:
+      - companyId
+      - scope
+      - version
+      - generatedAt
+      - summary
+      - features
+      - dataQuality
+      - limitations
+      description: 'Контекст компании/группы: отрасль, масштаб, география, продукты, связи. Доля рынка и другие
+        неизвестные показатели не выдумываются: отмечаются как отсутствующие или расчетные с основанием.'
+    Relation:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        fromId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        toId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        type:
+          type: string
+          enum:
+          - payment
+          - same_group
+          - shared_person
+        direction:
+          type: string
+          enum:
+          - incoming
+          - outgoing
+          - undirected
+        paymentAmount:
+          type: string
+          pattern: ^\d+(\.\d+)?$
+          description: Сумма без потери точности; только если доступна.
+        paymentCurrency:
+          type: string
+          nullable: true
+          description: Код валюты, если известен. Не предполагать RUB автоматически.
+        paymentCount:
+          type: integer
+          minimum: 0
+        datasetVersion:
+          type: string
+      required:
+      - id
+      - fromId
+      - toId
+      - type
+      - direction
+      - datasetVersion
+      description: shared_person связывает две компании по обезличенному физлицу; сам идентификатор физлица в публичном
+        API не раскрывается.
+    RelationPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Relation'
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+      - items
+      - nextCursor
+    Material:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum:
+          - external_news
+          - bank_analytics
+        title:
+          type: string
+        publisher:
+          type: string
+        url:
+          type: string
+          format: uri
+          nullable: true
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        retrievedAt:
+          type: string
+          format: date-time
+        version:
+          type: string
+        text:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        availability:
+          type: string
+          enum:
+          - available
+          - restricted
+          - removed
+      required:
+      - id
+      - kind
+      - title
+      - publisher
+      - url
+      - publishedAt
+      - retrievedAt
+      - version
+      - text
+      - topics
+      - availability
+      description: Текст доступен только в пределах прав пользователя и прав на материал. В сводке хранятся версии
+        и выдержки, чтобы ссылка на основание не исчезала при обновлении источника.
+    MaterialPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Material'
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+      - items
+      - nextCursor
+    Citation:
+      type: object
+      additionalProperties: false
+      properties:
+        materialId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        materialVersion:
+          type: string
+        quote:
+          type: string
+          minLength: 1
+        locator:
+          type: string
+          description: Страница PDF, абзац или раздел.
+      required:
+      - materialId
+      - materialVersion
+      - quote
+    Claim:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        text:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum:
+          - confirmed_fact
+          - bank_position
+          - model_inference
+        certainty:
+          type: string
+          enum:
+          - confirmed
+          - conditional
+          - uncertain
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Citation'
+        featureIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        supportingClaimIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        assumptions:
+          type: array
+          items:
+            type: string
+      required:
+      - id
+      - text
+      - kind
+      - certainty
+      - citations
+      - featureIds
+      - supportingClaimIds
+      - assumptions
+      description: Каждый вывод связан с основаниями. confirmed_fact требует citations; bank_position требует ссылку
+        на bank_analytics и не может быть сгенерирована от имени банка без источника. model_inference ссылается
+        на факты, аналитику и/или признаки из снимка контекста. Предположения явно перечисляются.
+    Impact:
+      type: object
+      additionalProperties: false
+      properties:
+        claim:
+          $ref: '#/components/schemas/Claim'
+        severity:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+        horizon:
+          type: string
+          enum:
+          - short_term
+          - medium_term
+          - long_term
+          - unknown
+      required:
+      - claim
+      - severity
+      - horizon
+    Insight:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        eventId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        companyId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        title:
+          type: string
+        summary:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+          nullable: true
+        relevanceScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        relevanceExplanation:
+          $ref: '#/components/schemas/Claim'
+        facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+          minItems: 1
+        bankPosition:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+        bankPositionStatus:
+          type: string
+          enum:
+          - available
+          - not_found
+          - contradictory
+        interpretation:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+          minItems: 1
+        risks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Impact'
+        opportunities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Impact'
+        suggestedActions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+        limitations:
+          type: array
+          items:
+            type: string
+      required:
+      - id
+      - eventId
+      - companyId
+      - title
+      - summary
+      - occurredAt
+      - relevanceScore
+      - relevanceExplanation
+      - facts
+      - bankPosition
+      - bankPositionStatus
+      - interpretation
+      - risks
+      - opportunities
+      - suggestedActions
+      - limitations
+      description: Одно событие после дедупликации исходных публикаций. Источники и признаки доступны через Digest.
+        Отсутствие позиции банка отображается явно. Предложенные действия не выполняются автоматически.
+    DigestRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scope:
+          type: string
+          enum:
+          - company
+          - group
+        period:
+          type: object
+          additionalProperties: false
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+          required:
+          - from
+          - to
+        maxItems:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+      required:
+      - scope
+      - period
+      description: from включительно, to исключительно; from < to. Период фильтрует материалы по publishedAt. Материалы
+        без даты публикации не включаются и отмечаются в limitations. Настройки пользователя и доступный контекст
+        фиксируются при запуске.
+    Digest:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        companyId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - ready
+          - partial
+        period:
+          type: object
+          additionalProperties: false
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+          required:
+          - from
+          - to
+        preferences:
+          $ref: '#/components/schemas/Preferences'
+        contextSnapshot:
+          $ref: '#/components/schemas/CompanyContext'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Insight'
+        materials:
+          type: array
+          items:
+            $ref: '#/components/schemas/Material'
+        limitations:
+          type: array
+          items:
+            type: string
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 128
+      required:
+      - id
+      - companyId
+      - createdAt
+      - status
+      - period
+      - preferences
+      - contextSnapshot
+      - items
+      - materials
+      - limitations
+      - runId
+      description: Неизменяемая персональная сводка. При отсутствии релевантных событий items=[] с объяснением в
+        limitations; это успешный результат. Все citations.materialId/version, featureIds и supportingClaimIds должны
+        разрешаться внутри этого снимка; ссылки между Claim не образуют циклов.
+    DigestSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        companyId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - ready
+          - partial
+        itemCount:
+          type: integer
+          minimum: 0
+      required:
+      - id
+      - companyId
+      - createdAt
+      - status
+      - itemCount
+    DigestPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DigestSummary'
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+      - items
+      - nextCursor
+    QuestionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        insightId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        parentAnswerId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        perspective:
+          type: string
+          enum:
+          - general
+          - risks
+          - opportunities
+          - cash_flow
+          - counterparties
+          - regions
+      required:
+      - question
+      description: Уточнение по всей сводке или одному insightId. parentAnswerId продолжает диалог внутри той же
+        сводки и текущего пользователя. perspective позволяет запросить другой разрез. Пустой после trim question
+        не допускается.
+    Answer:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        digestId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        question:
+          type: string
+        parentAnswerId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        claims:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+        materials:
+          type: array
+          items:
+            $ref: '#/components/schemas/Material'
+        additionalFeatures:
+          type: array
+          items:
+            $ref: '#/components/schemas/Feature'
+        status:
+          type: string
+          enum:
+          - answered
+          - insufficient_data
+        limitations:
+          type: array
+          items:
+            type: string
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 128
+      required:
+      - id
+      - digestId
+      - question
+      - parentAnswerId
+      - createdAt
+      - claims
+      - materials
+      - additionalFeatures
+      - status
+      - limitations
+      - runId
+      description: Ссылки разрешаются по объединению снимка Digest и данных Answer. Новые источники возвращаются
+        в materials; дополнительные признаки — в additionalFeatures. Если оснований мало, возвращается insufficient_data
+        с объяснением, а не выдуманный ответ.
+    Job:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum:
+          - digest_generation
+          - question_answering
+          - material_ingestion
+          - dataset_import
+        status:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        result:
+          type: object
+          additionalProperties: false
+          properties:
+            type:
+              type: string
+              enum:
+              - digest
+              - answer
+              - ingestion_report
+            id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            href:
+              type: string
+              format: uri-reference
+          required:
+          - type
+          - id
+          - href
+        error:
+          $ref: '#/components/schemas/Error'
+      required:
+      - id
+      - kind
+      - status
+      - createdAt
+      - updatedAt
+      description: queued → running → succeeded|failed. result присутствует только при succeeded; error — только
+        при failed. При частично доступных данных бизнес-результат может быть partial/insufficient_data при succeeded.
+    TraceStep:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        stage:
+          type: string
+          enum:
+          - planning
+          - context
+          - retrieval
+          - classification
+          - deduplication
+          - ranking
+          - interpretation
+          - verification
+          - adaptation
+        status:
+          type: string
+          enum:
+          - succeeded
+          - failed
+          - skipped
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        tool:
+          type: string
+        materialIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        featureIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        resultSummary:
+          type: string
+        retryReason:
+          type: string
+          nullable: true
+      required:
+      - id
+      - stage
+      - status
+      - startedAt
+      - finishedAt
+      - materialIds
+      - featureIds
+      - resultSummary
+      description: Структурированный журнал вызовов и результатов; без секретов, сырых персональных данных и скрытых
+        рассуждений модели.
+    RunTrace:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        jobId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        contextVersion:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/TraceStep'
+        modelIds:
+          type: array
+          items:
+            type: string
+        inputTokens:
+          type: integer
+          minimum: 0
+        outputTokens:
+          type: integer
+          minimum: 0
+      required:
+      - id
+      - jobId
+      - steps
+      - modelIds
+      - inputTokens
+      - outputTokens
+    FeedbackRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        targetType:
+          type: string
+          enum:
+          - insight
+          - answer
+        targetId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        rating:
+          type: string
+          enum:
+          - useful
+          - not_useful
+        reasons:
+          type: array
+          items:
+            type: string
+            enum:
+            - irrelevant
+            - incorrect_fact
+            - missing_source
+            - unclear
+            - outdated
+            - other
+          uniqueItems: true
+        comment:
+          type: string
+          maxLength: 2000
+      required:
+      - targetType
+      - targetId
+      - rating
+      description: targetId должен принадлежать указанной сводке или ответам текущего пользователя по ней. Комментарий
+        пользователя не является подтвержденным фактом.
+    Feedback:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        createdAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - createdAt
+    IngestionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+        publishedFrom:
+          type: string
+          format: date-time
+      required:
+      - sourceIds
+      description: ID настроенных на сервере разрешенных источников. Парсинг, классификация, выделение фактов и
+        дедупликация выполняются сервером. Произвольные URL от пользователя не загружаются.
+    Source:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        kind:
+          type: string
+          enum:
+          - external_news
+          - bank_analytics
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        enabled:
+          type: boolean
+        lastSuccessfulSyncAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - id
+      - kind
+      - name
+      - url
+      - enabled
+      - lastSuccessfulSyncAt
+    SourcePage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+      - items
+      - nextCursor
+    IngestionReport:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        jobId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        datasetVersion:
+          type: string
+        processed:
+          type: integer
+          minimum: 0
+        created:
+          type: integer
+          minimum: 0
+        duplicates:
+          type: integer
+          minimum: 0
+        rejected:
+          type: integer
+          minimum: 0
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+      - id
+      - jobId
+      - processed
+      - created
+      - duplicates
+      - rejected
+      - warnings
