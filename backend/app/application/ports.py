@@ -33,6 +33,7 @@ class UnitOfWork(Protocol):
     resources: Resources
     users: Users
     sessions: Sessions
+
     async def __aenter__(self) -> Self: ...
     async def __aexit__(self, exc_type, exc_val, traceback) -> None: ...
     async def lock(self, key: str) -> None: ...
@@ -51,6 +52,7 @@ class Security(Protocol):
 class Model(Protocol):
     enabled: bool
     model_id: str
+
     async def complete(self, task: str, context: Document) -> Document: ...
 
 
