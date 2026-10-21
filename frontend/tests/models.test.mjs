@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { companyView, insightView, answerView } from '../dist/js/models.js';
-import { filterEvents, contextReasons } from '../dist/js/domain.js';
+import { companyView, insightView, answerView } from '../src/lib/models.js';
+import { filterEvents, contextReasons } from '../src/lib/domain.js';
 
 const claim = (text, material = 'bank') => ({ id: text, text, kind: 'model_inference', citations: [{ materialId: material, materialVersion: '1', quote: 'Точный фрагмент' }], featureIds: ['f'], supportingClaimIds: [], assumptions: [] });
 const item = { id: 'event', title: 'Ставка', summary: 'Влияние на ликвидность', occurredAt: '2026-10-01T00:00:00Z', relevanceScore: .83, facts: [claim('Факт')], bankPosition: [claim('Позиция банка')], bankPositionStatus: 'available', interpretation: [claim('Вывод')], relevanceExplanation: claim('Серверное основание'), risks: [{ claim: claim('Риск') }], opportunities: [{ claim: claim('Возможность') }], suggestedActions: [claim('Действие')], limitations: [] };

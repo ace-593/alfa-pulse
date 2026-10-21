@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApi } from '../dist/js/api.js';
+import { createApi } from '../src/lib/api.js';
 
 test('фронтенд-адаптер проходит полный сценарий с работающим backend и worker', { skip: !process.env.PULSE_E2E_URL, timeout: 120000 }, async () => {
   const values = new Map();

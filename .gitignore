@@ -16,3 +16,6 @@ playwright-report/
 .pytest_cache/
 .ruff_cache/
 backups/
+
+frontend/dist/
+frontend/coverage/

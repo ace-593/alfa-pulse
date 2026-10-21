@@ -1,13 +1,13 @@
 # Пульс бизнеса
 
-Персональная новостная аналитика: Python 3.12, FastAPI, PostgreSQL 17, SQLAlchemy 2, Alembic. Луковая архитектура. Фронтенд на HTML/CSS/JS из предоставленного архива подключен к нашему OpenAPI-контракту из 25 операций.
+Персональная новостная аналитика: Python 3.12, FastAPI, PostgreSQL 17, SQLAlchemy 2, Alembic. Луковая архитектура. Фронтенд на React 19 и Vite подключен к OpenAPI-контракту из 25 операций.
 
 ## Быстрый запуск
 
 Нужны Git и Docker Engine/Desktop с Compose v2.24+. До слияния PR используйте ветку реализации:
 
 ```sh
-git clone -b feature/python-fullstack https://github.com/AnastasiaYuhimenko/alfa-pulse.git
+git clone -b feature/python-fullstack https://github.com/ace-593/alfa-pulse.git
 cd alfa-pulse
 docker compose -f backend/compose.yaml up -d
 docker compose -f frontend/compose.yaml up -d
@@ -41,6 +41,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://pulse:password@127.0.0.1:5432/pulse_test 
 uv run ruff check app tests alembic
 uv run ruff format --check app tests alembic
 cd ../frontend
+npm ci
 npm run check
 npm test
 PULSE_E2E_URL=http://127.0.0.1:8080 npm test
@@ -68,10 +69,30 @@ backend/app/infrastructure   PostgreSQL, JWT, источники, LLM
 backend/app/presentation     HTTP и валидация OpenAPI
 backend/alembic              миграции
 backend/tests                unit и интеграционные тесты
-frontend/dist                интерфейс и API-адаптер
+frontend/src                 React-компоненты, hooks и API-адаптер
+frontend/public              favicon и runtime-конфигурация API
+frontend/dist                результат сборки Vite (не хранится в Git)
 frontend/tests               модели, сессия, API, HTTP-сценарий
 deploy                       файлы сервера и обновления
 docs                         документация и контракт
 ```
 
 Учетные данные существуют только у этого сервиса. Интеграция с действующим интернет-банком не реализована и не требуется для запуска автономного прототипа.
+
+## Разработка React-фронтенда
+
+Нужен Node.js 22.12+ (или 24 LTS). API и worker запускаются отдельно, как описано выше.
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Vite показывает локальный адрес и проксирует `/api/v1` на `http://127.0.0.1:8000`. Для другого backend: `API_UPSTREAM=http://localhost:8001 npm run dev`.
+
+Production: `npm run build`, затем `npm start`, либо Docker Compose — Docker сам собирает React-приложение. Для `npm start` можно задать `PORT` и `API_UPSTREAM`.
+
+Исходники: `src/App.jsx` — навигация и компоновка, `src/usePulse.js` — сессия и загрузка контекста, `src/components/` — React-компоненты, `src/lib/` — API и адаптеры данных. `public/config.js` задаёт runtime-настройки API. Токены хранятся в sessionStorage, сохранения разделены по пользователю и компании.
+
+`npm test` запускает тесты API/адаптеров и React-компонентов; `npm run check` — production-сборку и синтаксические проверки. HTTP-тест с настоящим backend включается через `PULSE_E2E_URL`.

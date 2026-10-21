@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApi } from '../dist/js/api.js';
+import { createApi } from '../src/lib/api.js';
 
 function storage() {
   const values = new Map();
