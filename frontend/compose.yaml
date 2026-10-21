@@ -1,0 +1,22 @@
+name: alfa-pulse-frontend
+services:
+  web:
+    build: .
+    ports:
+      - ${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080
+    networks:
+      - edge
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+networks:
+  edge:
+    external: true
+    name: alfa-pulse-edge

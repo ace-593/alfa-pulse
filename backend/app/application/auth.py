@@ -13,6 +13,7 @@ class AuthService:
         self.uow = uow
         self.security = security
         self.demo = demo
+        self.dummy_hash = security.password_hash("dummy-password-for-constant-time-verification")
 
     @staticmethod
     def user_view(user):
@@ -65,9 +66,7 @@ class AuthService:
             if rate["count"] >= 10:
                 raise AppError(429, "LOGIN_RATE_LIMIT", "Слишком много попыток входа")
             user = await uow.users.by_email(email)
-            encoded = (
-                user.password_hash if user else await asyncio.to_thread(self.security.password_hash, "dummy-password")
-            )
+            encoded = user.password_hash if user else self.dummy_hash
             matches = await asyncio.to_thread(self.security.password_matches, password, encoded)
             if user is None or not matches:
                 rate["count"] += 1
@@ -86,6 +85,8 @@ class AuthService:
         async with self.uow() as uow:
             await uow.lock(f"refresh:{key}")
             record = await uow.sessions.refresh_record(key)
+            if record:
+                await uow.lock(f"session:{record[0]}")
             session = await uow.sessions.get(record[0]) if record else None
             if not session or session.revoked or session.expires_at <= now():
                 denied = True
@@ -117,6 +118,7 @@ class AuthService:
 
     async def logout(self, actor):
         async with self.uow() as uow:
+            await uow.lock(f"session:{actor.session_id}")
             session = await uow.sessions.get(actor.session_id)
             session.revoked = True
             await uow.sessions.save(session)

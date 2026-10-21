@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,12 @@ const port = Number(process.env.PORT || 4173);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json' };
 http.createServer(async (req, res) => {
   try {
+    if (req.url.startsWith('/api/v1/')) {
+      const target = new URL(req.url, process.env.API_UPSTREAM || 'http://127.0.0.1:8000');
+      const transport = target.protocol === 'https:' ? https : http;
+      const proxy = transport.request(target, { method: req.method, headers: { ...req.headers, host: target.host } }, upstream => { res.writeHead(upstream.statusCode, upstream.headers); upstream.pipe(res); });
+      proxy.on('error', () => res.writeHead(502).end()); req.pipe(proxy); return;
+    }
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     let file = resolve(root, '.' + pathname);
     if (file !== root.slice(0, -1) && !file.startsWith(root)) {

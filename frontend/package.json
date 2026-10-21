@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server.mjs",
     "dev": "node server.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check dist/js/app.js && node --check dist/js/api.js && node --check dist/js/domain.js && node --check dist/js/data.js"
+    "check": "node --check dist/js/app.js && node --check dist/js/api.js && node --check dist/js/models.js && node --check dist/js/auth.js && node --check server.mjs"
   }
 }
