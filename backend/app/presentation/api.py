@@ -3,6 +3,7 @@ import base64
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.application.common import admin_access
 from app.domain.models import AppError
 from app.domain.policies import date
 from app.presentation.contracts import SPEC, check_request
@@ -85,6 +86,8 @@ async def dispatch(request: Request):
     elif name == "getIngestionReport":
         result = await jobs.report(actor, p["reportId"])
     elif name in {"createDigest", "askDigestQuestion", "startMaterialIngestion", "importClientDatasets"}:
+        if name in {"startMaterialIngestion", "importClientDatasets"}:
+            admin_access(actor)
         key = request.headers["Idempotency-Key"]
         if name == "createDigest":
             if date(body["period"]["from"]) >= date(body["period"]["to"]):
@@ -98,6 +101,8 @@ async def dispatch(request: Request):
             kind, payload = "material_ingestion", body
         else:
             form = await request.form(max_files=3, max_fields=1, max_part_size=50 * 1024 * 1024)
+            if set(form) != {"companies", "personLinks", "payments", "datasetVersion"}:
+                raise AppError(422, "INVALID_FORM", "Некорректные поля формы")
             version = form.get("datasetVersion", "")
             if not isinstance(version, str) or not 1 <= len(version) <= 100:
                 raise AppError(422, "INVALID_VERSION", "Укажи версию набора")

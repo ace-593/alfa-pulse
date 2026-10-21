@@ -162,3 +162,55 @@ async def test_agent_retries_invalid_sources_and_handles_unseen_bank_material(cl
     trace = (await client.get(f"/api/v1/runs/{digest['runId']}/trace")).json()
     assert any(v["stage"] == "adaptation" for v in trace["steps"])
     assert trace["modelIds"] == ["approved-test-model"]
+
+
+async def test_context_snapshot_survives_company_update_before_execution(client, signed_in):
+    body = {
+        "scope": "company",
+        "period": {"from": iso(now() - timedelta(days=1)), "to": iso(now() + timedelta(days=1))},
+    }
+    response = await client.post("/api/v1/companies/metal/digests", json=body, headers={"Idempotency-Key": "snapshot"})
+    assert response.status_code == 202
+    services = client.application.state.services
+    async with services["jobs"].uow() as uow:
+        company = await uow.resources.get("company", "metal")
+        company.update(_tags=[], _features=[], _version="changed-after-enqueue")
+        await uow.resources.put("company", "metal", company)
+    await services["jobs"].execute_one(services["analytics"], services["ingestion"])
+    job = (await client.get(f"/api/v1/jobs/{response.json()['id']}")).json()
+    digest = (await client.get(job["result"]["href"])).json()
+    assert digest["contextSnapshot"]["features"]
+    assert digest["contextSnapshot"]["version"] == "synthetic-v1"
+    assert digest["items"]
+
+
+async def test_job_claim_is_exclusive_and_stale_lease_is_replaced(client, signed_in):
+    import asyncio
+
+    from sqlalchemy import update
+
+    from app.infrastructure.database import ResourceRow
+
+    body = {
+        "scope": "company",
+        "period": {"from": iso(now() - timedelta(days=1)), "to": iso(now() + timedelta(days=1))},
+    }
+    response = await client.post("/api/v1/companies/metal/digests", json=body, headers={"Idempotency-Key": "lease"})
+    services = client.application.state.services
+
+    async def claim_one():
+        async with services["jobs"].uow() as uow:
+            return await uow.resources.claim_job()
+
+    claimed = await asyncio.gather(claim_one(), claim_one())
+    winner = next(v for v in claimed if v is not None)
+    assert sum(v is not None for v in claimed) == 1
+    async with services["jobs"].uow() as uow:
+        await uow.session.execute(
+            update(ResourceRow)
+            .where(ResourceRow.kind == "job", ResourceRow.key == response.json()["id"])
+            .values(updated_at=now() - timedelta(minutes=11))
+        )
+    recovered = await claim_one()
+    assert recovered["id"] == winner["id"]
+    assert recovered["_lease"] != winner["_lease"]

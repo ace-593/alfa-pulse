@@ -95,8 +95,8 @@ export function createApi({ baseUrl = config.apiBaseUrl, fetcher = (...args) => 
     },
     async ask(companyId, insightId, message, history, signal) {
       const digest = current(companyId);
-      const result = await job(`/companies/${path(companyId)}/digests/${path(digest.id)}/questions`, { question: message, insightId, ...(digest._answerId ? { parentAnswerId: digest._answerId } : {}) }, signal);
-      digest._answerId = result.id;
+      const result = await job(`/companies/${path(companyId)}/digests/${path(digest.id)}/questions`, { question: message, insightId, ...(digest._answers?.[insightId] ? { parentAnswerId: digest._answers[insightId] } : {}) }, signal);
+      digest._answers ||= {}; digest._answers[insightId] = result.id;
       return answerView(result, digest);
     },
     async feedback(companyId, insightId, value) {

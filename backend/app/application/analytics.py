@@ -1,6 +1,6 @@
 from app.application.common import company_access, fingerprint, identifier, owned, page, public
 from app.domain.models import Actor, AppError, iso
-from app.domain.policies import date, relevance
+from app.domain.policies import ROLE_LABELS, TOPIC_LABELS, date, relevance
 
 
 def claim(text, kind, citations=(), features=(), supports=(), assumptions=()):
@@ -135,17 +135,32 @@ class AnalyticsService:
             )
             await uow.resources.put("trace", trace["id"], trace)
 
+    async def complete(self, job, task, context):
+        result = await self.model.complete(task, context)
+        usage = result.pop("_usage", {})
+        async with self.uow() as uow:
+            trace = await uow.resources.get("trace", job["_runId"])
+            if trace:
+                for name in ["inputTokens", "outputTokens"]:
+                    trace[name] += max(0, int(usage.get(name, 0)))
+                await uow.resources.put("trace", trace["id"], trace)
+        return result
+
     async def model_claim(self, task, context, sources, features, job):
         error = None
         for _attempt in range(2):
-            result = await self.model.complete(task, {**context, "validationError": error})
+            result = await self.complete(job, task, {**context, "validationError": error})
             try:
                 converted = []
+                if not isinstance(result.get("claims"), list) or len(result["claims"]) > 15:
+                    raise ValueError("invalid number of claims")
                 for v in result.get("claims", []):
                     if (
                         not isinstance(v, dict)
                         or not isinstance(v.get("text"), str)
                         or not isinstance(v.get("materialIds", []), list)
+                        or len(v["text"]) > 4000
+                        or v.get("section", "interpretation") not in {"interpretation", "risk", "opportunity", "action"}
                     ):
                         raise ValueError("claim shape")
                     refs = []
@@ -166,8 +181,11 @@ class AnalyticsService:
                             assumptions=["Сценарный вывод модели; требует проверки перед принятием решения."],
                         )
                     )
+                    converted[-1]["_section"] = v.get("section", "interpretation")
                 if not converted:
                     raise ValueError("empty claims")
+                if task == "interpretation" and not any(v["_section"] == "interpretation" for v in converted):
+                    raise ValueError("missing interpretation")
                 verified_claims(converted, sources, features)
                 return converted
             except (AppError, ValueError, KeyError, TypeError) as exc:
@@ -194,12 +212,9 @@ class AnalyticsService:
             "План: контекст → поиск → классификация → дедупликация → ранжирование → интерпретация → проверка",
         )
         async with self.uow() as uow:
-            company = await company_access(uow, actor, job["companyId"])
+            await company_access(uow, actor, job["companyId"])
             materials = await uow.resources.list("material")
-            company_tags = company.get("_tags", [])
-            if payload["scope"] == "group":
-                members = await uow.resources.list("company", {"groupId": company["groupId"]})
-                company_tags = list({t for c in members for t in c.get("_tags", [])})
+            company_tags = context.get("_tags", [])
         await self.step(job, "context", "Зафиксирован снимок признаков и настроек пользователя", features=features)
         start, end = date(payload["period"]["from"]), date(payload["period"]["to"])
         materials = [
@@ -217,7 +232,8 @@ class AnalyticsService:
             materials = [m for m in materials if any(r.casefold() in m["text"].casefold() for r in prefs["regions"])]
         await self.step(job, "retrieval", f"Найдено материалов: {len(materials)}", [m["id"] for m in materials])
         if self.model.enabled:
-            plan = await self.model.complete(
+            plan = await self.complete(
+                job,
                 "planning",
                 {
                     "features": context["features"],
@@ -230,7 +246,10 @@ class AnalyticsService:
             )
             suggested = plan.get("topics", [])
             if isinstance(suggested, list) and all(isinstance(t, str) for t in suggested):
-                company_tags = list(set(company_tags) | (set(suggested) & {t for m in materials for t in m["topics"]}))
+                matched = set(suggested) & set(company_tags)
+                await self.step(
+                    job, "retrieval", f"Уточнены направления поиска по {len(matched)} подтвержденным темам компании"
+                )
         await self.step(job, "classification", "Внешние новости отделены от аналитики банка; темы нормализованы")
         seen, news, bank = set(), [], []
         for m in materials:
@@ -260,7 +279,7 @@ class AnalyticsService:
             fact = claim(material["text"][:700], "confirmed_fact", [citation(material)])
             position = [claim(m["text"][:700], "bank_position", [citation(m)]) for m in related]
             reason = claim(
-                f"Событие связано с признаками компании: {', '.join(sorted(set(company_tags) & set(material['topics'])))}. Приоритет учитывает роль {prefs['role']}.",
+                f"Событие связано с признаками компании: {', '.join(TOPIC_LABELS.get(t, t) for t in sorted(set(company_tags) & set(material['topics'])))}. Приоритет учитывает задачи {ROLE_LABELS[prefs['role']]}.",
                 "model_inference",
                 [citation(material)],
                 features,
@@ -322,6 +341,20 @@ class AnalyticsService:
                     features,
                 )
             ]
+            if self.model.enabled:
+                generated = interpretations
+                interpretations = [v for v in generated if v["_section"] == "interpretation"]
+                risks = [
+                    {"claim": v, "severity": "medium", "horizon": "unknown"}
+                    for v in generated
+                    if v["_section"] == "risk"
+                ]
+                opportunities = [
+                    {"claim": v, "severity": "medium", "horizon": "unknown"}
+                    for v in generated
+                    if v["_section"] == "opportunity"
+                ]
+                actions = [v for v in generated if v["_section"] == "action"]
             item = {
                 "id": identifier(),
                 "eventId": material["id"],

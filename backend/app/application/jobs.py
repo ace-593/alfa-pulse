@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import suppress
 from datetime import timedelta
 
 from app.application.common import admin_access, company_access, fingerprint, identifier, owned, public, required
@@ -32,6 +34,7 @@ class JobService:
                     "_preferences": await uow.resources.get("preferences", f"{actor.id}:{company_id}")
                     or {"role": "other", "topics": [], "regions": [], "scope": "company"},
                 }
+                payload["_preferences"]["scope"] = payload["scope"]
             if kind == "question_answering":
                 digest = await owned(uow, actor, "digest", digest_id)
                 if digest["companyId"] != company_id:
@@ -86,6 +89,29 @@ class JobService:
             job = await uow.resources.claim_job()
         if job is None:
             return False
+        heartbeat = asyncio.create_task(self.heartbeat(job))
+        try:
+            return await self.perform(job, analytics, ingestion)
+        finally:
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
+
+    async def heartbeat(self, job, interval=30):
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                async with self.uow() as uow:
+                    await uow.lock(f"job:{job['id']}")
+                    current = await required(uow, "job", job["id"])
+                    if current["status"] != "running" or current.get("_lease") != job.get("_lease"):
+                        return
+                    current["updatedAt"] = iso()
+                    await uow.resources.put("job", current["id"], current)
+            except Exception:
+                continue
+
+    async def perform(self, job, analytics, ingestion):
         try:
             if job["kind"] == "digest_generation":
                 kind, result = "digest", await analytics.generate(job)
@@ -97,6 +123,10 @@ class JobService:
                 kind, result = "ingestion_report", await ingestion.execute(job)
                 href = f"/api/v1/admin/ingestion-reports/{result['id']}"
             async with self.uow() as uow:
+                await uow.lock(f"job:{job['id']}")
+                current = await required(uow, "job", job["id"])
+                if current.get("_lease") != job.get("_lease"):
+                    return True
                 await uow.resources.put(kind, result["id"], result)
                 job.update(status="succeeded", updatedAt=iso(), result={"type": kind, "id": result["id"], "href": href})
                 await uow.resources.put("job", job["id"], job)
@@ -105,6 +135,10 @@ class JobService:
                 exc if isinstance(exc, AppError) else AppError(500, "JOB_FAILED", "Не удалось подготовить результат")
             )
             async with self.uow() as uow:
+                await uow.lock(f"job:{job['id']}")
+                current = await required(uow, "job", job["id"])
+                if current.get("_lease") != job.get("_lease"):
+                    return True
                 job.update(
                     status="failed",
                     updatedAt=iso(),

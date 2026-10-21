@@ -66,11 +66,12 @@ class CatalogService:
             "limitations": [
                 "Доля рынка, структура долга и платежный календарь могут отсутствовать. Отсутствие признака не означает нулевое значение."
             ],
+            "_tags": sorted({tag for value in companies for tag in value.get("_tags", [])}),
         }
 
     async def context(self, actor, company_id, scope):
         async with self.uow() as uow:
-            return await self.context_in(uow, actor, company_id, scope)
+            return public(await self.context_in(uow, actor, company_id, scope))
 
     async def relations(self, actor, company_id, limit, cursor, relation_type=None):
         async with self.uow() as uow:

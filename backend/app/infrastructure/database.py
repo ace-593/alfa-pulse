@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, and_, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB, insert
@@ -136,7 +137,7 @@ class ResourceRepository:
         )
         if row is None:
             return None
-        data = {**row.data, "status": "running", "updatedAt": now().isoformat()}
+        data = {**row.data, "status": "running", "updatedAt": now().isoformat(), "_lease": str(uuid4())}
         row.data = data
         row.updated_at = now()
         await self.session.flush()

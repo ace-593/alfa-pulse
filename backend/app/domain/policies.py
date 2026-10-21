@@ -6,6 +6,23 @@ from datetime import datetime
 from app.domain.models import AppError
 
 ROLES = {"owner", "ceo", "cfo", "chief_accountant", "treasurer", "other"}
+ROLE_LABELS = {
+    "owner": "собственника",
+    "ceo": "генерального директора",
+    "cfo": "финансового директора",
+    "chief_accountant": "главного бухгалтера",
+    "treasurer": "казначея",
+    "other": "пользователя",
+}
+TOPIC_LABELS = {
+    "credit": "кредитование",
+    "deposit": "депозиты",
+    "fx": "внешняя торговля и валютные операции",
+    "metal": "металлургия",
+    "logistics": "перевозки",
+    "agro": "сельское хозяйство",
+    "leasing": "лизинг",
+}
 
 
 def normalize_email(value: str) -> str:

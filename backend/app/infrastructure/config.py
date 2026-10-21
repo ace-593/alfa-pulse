@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,6 +14,14 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_api_key: str = ""
     llm_model_id: str = ""
+    llm_model_family: Literal[
+        "Gemma 4 26B A4B",
+        "GLM-5.3-Flash",
+        "Qwen3.6 35B A3B",
+        "DeepSeek-V4.1-Flash",
+        "Qwen3-VL-30B-A3B-Instruct",
+        "Kimi-K2.6",
+    ] = "GLM-5.3-Flash"
     llm_allowed_model_ids: str = ""
     llm_input_rub_per_million: float = Field(default=0, ge=0)
     llm_output_rub_per_million: float = Field(default=0, ge=0)
