@@ -1,0 +1,19 @@
+[
+  {
+    "id": "external-feed",
+    "kind": "external_news",
+    "name": "Название разрешенного источника",
+    "url": "https://example.com/news.rss",
+    "format": "rss",
+    "enabled": true
+  },
+  {
+    "id": "bank-report",
+    "kind": "bank_analytics",
+    "name": "Название оригинального отчета Альфа-Банка",
+    "url": "https://example.com/report.pdf",
+    "format": "pdf",
+    "publishedAt": "2026-10-01T00:00:00Z",
+    "enabled": true
+  }
+]

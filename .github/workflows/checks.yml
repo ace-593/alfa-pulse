@@ -1,0 +1,78 @@
+name: merge-checks
+on:
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: pulse_test
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U pulse -d pulse_test" --health-interval 5s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://pulse:test-password@127.0.0.1:5432/pulse_test
+      DATABASE_URL: postgresql+asyncpg://pulse:test-password@127.0.0.1:5432/pulse_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install uv==0.13.4
+      - run: uv sync --frozen
+      - run: uv run --frozen ruff check app tests alembic
+      - run: uv run --frozen ruff format --check app tests alembic
+      - run: uv run --frozen alembic upgrade head
+      - run: uv run --frozen pytest -q
+  compose-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate Compose projects
+        run: |
+          docker compose -f backend/compose.yaml config --quiet
+          docker compose -f frontend/compose.yaml config --quiet
+      - name: Start backend project
+        run: docker compose -f backend/compose.yaml up -d --build --wait --wait-timeout 180
+      - name: Start frontend project
+        run: docker compose -f frontend/compose.yaml up -d --build --wait --wait-timeout 90
+      - name: Frontend checks and full HTTP scenario
+        working-directory: frontend
+        env:
+          PULSE_E2E_URL: http://127.0.0.1:8080
+        run: |
+          npm run check
+          npm test
+      - name: Verify persistence after restart
+        run: |
+          docker compose -f backend/compose.yaml restart api worker
+          sleep 5
+          curl --fail http://127.0.0.1:8000/healthz
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          docker compose -f backend/compose.yaml logs --no-color --tail 100
+          docker compose -f frontend/compose.yaml logs --no-color --tail 100
+      - name: Stop containers
+        if: always()
+        run: |
+          docker compose -f frontend/compose.yaml down
+          docker compose -f backend/compose.yaml down -v
