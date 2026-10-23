@@ -1,0 +1,155 @@
+{
+  "index_version": "1.0",
+  "kind": "partial_bank_evidence_index",
+  "documents": [
+    {
+      "document_id": "consumption",
+      "file_name": "ALFA-consumption.pdf",
+      "title": "Потребление на пике",
+      "document_date": "2026-08-05",
+      "topics": [
+        "consumption",
+        "macroeconomy"
+      ],
+      "source_url": "https://drive.google.com/file/d/1riR1lhsb6EY1MwGMxdBlS_tI5ed9mIiz/view",
+      "pages": 4,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "metals",
+      "file_name": "ALFA_Russian_Steels_1К21PreviewUpdate_15Apr2021.pdf",
+      "title": "Металлургия (материал 2021 года)",
+      "document_date": "2021-04-15",
+      "topics": [
+        "metals"
+      ],
+      "source_url": "https://drive.google.com/file/d/1yLCBrIoyIsubLTEBvBHh6io48ysnW-wn/view",
+      "pages": 4,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "labor",
+      "file_name": "ALFA-7M26.pdf",
+      "title": "Макростатистика 7М26, рынок труда",
+      "document_date": "2026-09-07",
+      "topics": [
+        "labor_market",
+        "macro_growth"
+      ],
+      "source_url": "https://drive.google.com/file/d/1HZDq3WGRFdzgm1TZ5hWL23Q3I9c2Eq64/view",
+      "pages": 4,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "rate",
+      "file_name": "ALFA-Macro_Insights-Policy_Rate_11Sep.pdf",
+      "title": "Ключевая ставка ЦБ РФ",
+      "document_date": "2026-09-11",
+      "topics": [
+        "monetary_policy",
+        "inflation"
+      ],
+      "source_url": "https://drive.google.com/file/d/1shHG89LtMgHT1_uEebHmQSFZe_zbeq7-/view",
+      "pages": 4,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "macro",
+      "file_name": "ALFA-macro_stat1H26.pdf",
+      "title": "Макростатистика 1П26",
+      "document_date": "2026-08-01",
+      "topics": [
+        "macro_growth"
+      ],
+      "source_url": "https://drive.google.com/file/d/1khcHwoS0FkG9p_0J4XoHGaGq3B4V0ime/view",
+      "pages": 5,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "strategy",
+      "file_name": "FI_Strategy_3Q26_22072026.pdf",
+      "title": "Тактический взгляд на 3-й квартал 2026",
+      "document_date": "2026-07-22",
+      "topics": [
+        "investment_strategy",
+        "bond_market"
+      ],
+      "source_url": "https://drive.google.com/file/d/1hq3Fhyz9ce_sRyGUQB1MdoHeQdfAJfhK/view",
+      "pages": 27,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "inflation",
+      "file_name": "Inflation_tracker_02.pdf",
+      "title": "Инфляция 25–31 августа: основные выводы",
+      "document_date": "2026-09-01",
+      "topics": [
+        "inflation"
+      ],
+      "source_url": "https://drive.google.com/file/d/19iW3Ph8_wO0HHQY7Ik4lTfC3jRc9gjWV/view",
+      "pages": 3,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "gold",
+      "file_name": "Gold_digest_August26.pdf",
+      "title": "Обзор рынка золота, август 2026",
+      "document_date": "2026-08-01",
+      "topics": [
+        "gold",
+        "commodities"
+      ],
+      "source_url": "https://drive.google.com/file/d/1a7TXOCHARfKzUR0hn9Cm9gQSrIldxTDE/view",
+      "pages": 8,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    },
+    {
+      "document_id": "bonds",
+      "file_name": "Бонд_Бриф_14092026.pdf",
+      "title": "Бонд Бриф: итоги недели",
+      "document_date": "2026-09-14",
+      "topics": [
+        "bond_market"
+      ],
+      "source_url": "https://drive.google.com/file/d/1bPzix_332N2CyMY0tqCHuYtGsfJWnFGv/view",
+      "pages": 5,
+      "contains_text_layer": false,
+      "index_state": "scanned_image_only_needs_review"
+    }
+  ],
+  "human_checked_excerpts": [
+    {
+      "document_id": "rate",
+      "page": 1,
+      "short_exact_quote": "Ставка без изменения на 14,0%, риторика стала жестче",
+      "categories": [
+        "monetary_policy"
+      ],
+      "review_status": "visual_review_page_verified",
+      "interpretation_limit": "Речь об аналитическом материале от 11.09.2026, не о текущем уровне ставки."
+    },
+    {
+      "document_id": "consumption",
+      "page": 1,
+      "short_exact_quote": "Мы полагаем, что динамика потребления сейчас находится на пике",
+      "categories": [
+        "macroeconomy"
+      ],
+      "review_status": "visual_review_page_verified",
+      "interpretation_limit": "Это мнение банка по состоянию на 05.08.2026, а не факт об отдельной компании."
+    }
+  ],
+  "limitations": [
+    "Only two short excerpts manually verified visually on first pages.",
+    "All nine PDFs image-only. Full text index/OCR requires separate preparation and human review.",
+    "Never infer facts from titles or infer future market conditions from historical bank notes."
+  ]
+}
