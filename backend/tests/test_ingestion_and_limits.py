@@ -1,5 +1,5 @@
-from app.domain.models import iso
-from app.presentation.contracts import validate
+from app.core.entities import iso
+from app.schemas.contracts import validate
 
 
 async def operator(client):
@@ -124,9 +124,9 @@ async def test_ingestion_preserves_versions_and_deduplicates(client):
 async def test_budget_rejects_before_provider_request(client):
     import pytest
 
-    from app.domain.models import AppError
-    from app.infrastructure.config import Settings
-    from app.infrastructure.model import HttpModel
+    from app.core.config import Settings
+    from app.core.exceptions import AppError
+    from app.services.llm_service import HttpModel
 
     services = client.application.state.services
     settings = Settings(

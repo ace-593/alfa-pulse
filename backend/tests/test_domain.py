@@ -1,8 +1,8 @@
 import pytest
 
-from app.application.analytics import claim, verified_claims
-from app.domain.models import AppError
-from app.domain.policies import csv_rows, date, normalize_email, relevance
+from app.core.exceptions import AppError
+from app.services.analytics_service import claim, verified_claims
+from app.services.policies import csv_rows, date, normalize_email, relevance
 
 
 def test_csv_quotes_and_invalid_links_format():

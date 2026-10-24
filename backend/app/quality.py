@@ -1,9 +1,9 @@
 import asyncio
 import json
 
-from app.application.quality import QualityService
-from app.infrastructure.config import Settings
-from app.infrastructure.database import database
+from app.core.config import Settings
+from app.db.session import database
+from app.services.quality_service import QualityService
 
 
 async def run():

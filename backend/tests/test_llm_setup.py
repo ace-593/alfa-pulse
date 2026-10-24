@@ -7,9 +7,9 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.domain.models import AppError
-from app.infrastructure.config import ALLOWED_LLM_MODELS, ORGANIZER_LLM_URL, Settings
-from app.infrastructure.model import HttpModel, parse_model_content
+from app.core.config import ALLOWED_LLM_MODELS, ORGANIZER_LLM_URL, Settings
+from app.core.exceptions import AppError
+from app.services.llm_service import HttpModel, parse_model_content
 
 
 def settings(**values):
@@ -131,7 +131,7 @@ def mock_gateway(monkeypatch, response=None, status=200):
         )
 
     monkeypatch.setattr(
-        "app.infrastructure.model.httpx.AsyncClient",
+        "app.services.llm_service.httpx.AsyncClient",
         lambda **kwargs: client_class(transport=httpx.MockTransport(handle), **kwargs),
     )
     return calls
@@ -282,7 +282,7 @@ def test_auto_rejects_incompatible_configuration(options):
 
 
 async def test_trace_records_actual_models_and_strips_internal_metadata():
-    from app.application.analytics import AnalyticsService
+    from app.services.analytics_service import AnalyticsService
 
     class Model:
         model_id = "auto"

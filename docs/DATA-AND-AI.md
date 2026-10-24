@@ -14,10 +14,9 @@
 
 ## Оператор и доступ
 
-Создайте оператора через `ADMIN_EMAIL` и `ADMIN_PASSWORD` в `backend/.env` до первого запуска. Операторские права не назначаются полями регистрации. Пользователь регистрируется самостоятельно, затем оператор выдает доступ:
+Создайте оператора через `ADMIN_EMAIL` и `ADMIN_PASSWORD` в корневом `.env` до первого запуска. Операторские права не назначаются полями регистрации. Пользователь регистрируется самостоятельно, затем оператор выдает доступ:
 
 ```sh
-cd backend
 docker compose exec api python -m app.manage grant-company user@example.com SYNTHETIC_U
 ```
 
@@ -41,7 +40,7 @@ docker compose exec api python -m app.manage make-admin operator@example.com
 
 ## LLM
 
-Прототип использует собственную оркестрацию, без LangChain, готовых агентов или внешних автономных AI-сервисов. Шлюз из командного комплекта `run_allowed_llm.py` уже задан: `https://changellenge.up.railway.app/v1`. Формат запросов — `/chat/completions`. Для подключения достаточно двух полей в `backend/.env`:
+Прототип использует собственную оркестрацию, без LangChain, готовых агентов или внешних автономных AI-сервисов. Шлюз из командного комплекта `run_allowed_llm.py` уже задан: `https://changellenge.up.railway.app/v1`. Формат запросов — `/chat/completions`. Для подключения достаточно двух полей в корневом `.env`:
 
 ```dotenv
 LLM_API_KEY=командный-ключ
@@ -64,7 +63,6 @@ LLM_MODEL_ID=auto
 Адрес, семейство модели и проверка разрешённого списка определяются автоматически. После смены ключа/модели пересоздайте API и worker, чтобы Compose перечитал `.env`:
 
 ```sh
-cd backend
 docker compose up -d --build --force-recreate api worker
 ```
 

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
-from app.domain.models import iso, now
-from app.presentation.contracts import validate
+from app.core.entities import iso, now
+from app.schemas.contracts import validate
 
 
 def checked(value, schema):
@@ -189,7 +189,7 @@ async def test_job_claim_is_exclusive_and_stale_lease_is_replaced(client, signed
 
     from sqlalchemy import update
 
-    from app.infrastructure.database import ResourceRow
+    from app.models.resources import ResourceRow
 
     body = {
         "scope": "company",
