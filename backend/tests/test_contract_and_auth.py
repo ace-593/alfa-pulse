@@ -4,7 +4,7 @@ from pathlib import Path
 
 from openapi_spec_validator import validate_spec
 
-from app.presentation.contracts import SPEC, validate
+from app.schemas.contracts import SPEC, validate
 
 
 def check(value, schema):

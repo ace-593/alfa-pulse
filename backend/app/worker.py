@@ -2,8 +2,8 @@ import asyncio
 import logging
 import signal
 
-from app.infrastructure.config import Settings
-from app.main import build_services
+from app.core.config import Settings
+from app.core.dependencies import build_services
 
 
 async def run():

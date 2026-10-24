@@ -1,9 +1,9 @@
 import argparse
 import asyncio
 
-from app.domain.policies import normalize_email
-from app.infrastructure.config import Settings
-from app.infrastructure.database import database
+from app.core.config import Settings
+from app.db.session import database
+from app.services.policies import normalize_email
 
 
 async def run():
@@ -27,7 +27,7 @@ async def run():
             else:
                 from sqlalchemy import update
 
-                from app.infrastructure.database import UserRow
+                from app.models.users import UserRow
 
                 await uow.session.execute(update(UserRow).where(UserRow.id == user.id).values(admin=True))
     finally:

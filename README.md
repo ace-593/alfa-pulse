@@ -1,6 +1,6 @@
 # Пульс бизнеса
 
-Персональная новостная аналитика: Python 3.12, FastAPI, PostgreSQL 17, SQLAlchemy 2, Alembic. Луковая архитектура. Фронтенд на React 19 и Vite подключен к OpenAPI-контракту из 25 операций.
+Персональная новостная аналитика: Python 3.12, FastAPI, PostgreSQL 17, SQLAlchemy 2, Alembic. Структура backend: API → services → repositories, отдельные ORM-модели и Unit of Work. Фронтенд на React 19 и Vite подключен к OpenAPI-контракту из 25 операций.
 
 ## Быстрый запуск
 
@@ -9,11 +9,10 @@
 ```sh
 git clone -b feature/python-fullstack https://github.com/ace-593/alfa-pulse.git
 cd alfa-pulse
-docker compose -f backend/compose.yaml up -d
-docker compose -f frontend/compose.yaml up -d
+docker compose up -d --build
 ```
 
-Первый запуск собирает образы и применяет миграции. Backend создает общую сеть, поэтому запускается первым. Интерфейс: [localhost:8080](http://localhost:8080). Swagger UI backend: [localhost:8000/api/v1/docs](http://localhost:8000/api/v1/docs). Внешняя ссылка на API имеет тот же origin, что и фронт: `/api/v1`.
+Первый запуск собирает образы и применяет миграции. Compose сам создаёт сети и запускает сервисы в нужном порядке. Интерфейс: [localhost:8080](http://localhost:8080). Swagger UI backend: [localhost:8000/api/v1/docs](http://localhost:8000/api/v1/docs). Внешняя ссылка на API имеет тот же origin, что и фронт: `/api/v1`.
 
 Зарегистрируйте новый аккаунт через интерфейс. По умолчанию включены три синтетические компании; доступ к ним назначается автоматически. Пароли тестовых пользователей заранее не задаются. Созданные сводки и сессии сохраняются в PostgreSQL. Ключ подписи генерируется при первом запуске и сохраняется в базе, если `SECRET_KEY` не задан.
 
@@ -21,12 +20,9 @@ docker compose -f frontend/compose.yaml up -d
 
 ## Настоящие данные и AI
 
-Скопируйте `backend/.env.example` в `backend/.env` и задайте секреты приложения. Для LLM достаточно `LLM_API_KEY=ваш-командный-ключ` и `LLM_MODEL_ID=auto`: адрес шлюза организаторов и разрешённые модели уже настроены. Другие ID перечислены в `.env.example`; ключ не добавляйте в GitHub или фронтенд. Настройте `backend/data/sources.json`, загрузите CSV и назначьте доступ пользователям. Подробности: [данные и модели](docs/DATA-AND-AI.md). Затем запускайте Compose из соответствующих каталогов, чтобы `.env` читался однозначно:
+Скопируйте `.env.example` в `.env` в корне проекта и задайте секреты приложения. Для LLM достаточно `LLM_API_KEY=ваш-командный-ключ` и `LLM_MODEL_ID=auto`: адрес шлюза организаторов и разрешённые модели уже настроены. Другие ID перечислены в `.env.example`; ключ не добавляйте в GitHub или фронтенд. Настройте `backend/data/sources.json`, загрузите CSV и назначьте доступ пользователям. Подробности: [данные и модели](docs/DATA-AND-AI.md). Все сервисы запускаются из корня проекта:
 
 ```sh
-cd backend
-docker compose up -d --build
-cd ../frontend
 docker compose up -d --build
 ```
 
@@ -47,7 +43,7 @@ npm test
 PULSE_E2E_URL=http://127.0.0.1:8080 npm test
 ```
 
-Тестам backend нужна отдельная PostgreSQL-база с именем, начинающимся на `pulse_test`: они очищают ее таблицы. Без `PULSE_E2E_URL` HTTP-тест frontend пропускается; остальные проверки работают без сервера. Merge checks в PR запускают backend на PostgreSQL, собирают оба Docker-проекта и выполняют HTTP-сценарий через nginx.
+Тестам backend нужна отдельная PostgreSQL-база с именем, начинающимся на `pulse_test`: они очищают ее таблицы. Без `PULSE_E2E_URL` HTTP-тест frontend пропускается; остальные проверки работают без сервера. Merge checks в PR запускают backend на PostgreSQL, собирают общий Compose-проект и выполняют HTTP-сценарий через nginx.
 
 ## Документация
 
@@ -63,10 +59,13 @@ PULSE_E2E_URL=http://127.0.0.1:8080 npm test
 ## Структура
 
 ```text
-backend/app/domain           сущности и правила
-backend/app/application      сценарии и порты
-backend/app/infrastructure   PostgreSQL, JWT, источники, LLM
-backend/app/presentation     HTTP и валидация OpenAPI
+backend/app/api/v1           маршруты auth, companies, digests, materials, jobs, ingestion
+backend/app/core             настройки, безопасность, зависимости и общие типы
+backend/app/db               Base, фабрика сессий и Unit of Work
+backend/app/models           SQLAlchemy-модели
+backend/app/repositories     доступ к пользователям, сессиям и ресурсам
+backend/app/schemas          OpenAPI-контракт и валидация
+backend/app/services         сценарии, бизнес-правила, LLM и источники
 backend/alembic              миграции
 backend/tests                unit и интеграционные тесты
 frontend/src                 React-компоненты, hooks и API-адаптер
@@ -81,7 +80,7 @@ docs                         документация и контракт
 
 ## Разработка React-фронтенда
 
-Нужен Node.js 22.12+ (или 24 LTS). API и worker запускаются отдельно, как описано выше.
+Нужен Node.js 22.12+ (или 24 LTS). API и worker запускаются общим Compose; для разработки можно запустить только их командой `docker compose up -d --build api worker`.
 
 ```sh
 cd frontend

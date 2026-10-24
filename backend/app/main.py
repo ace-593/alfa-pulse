@@ -8,33 +8,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from app.application.analytics import AnalyticsService
-from app.application.auth import AuthService
-from app.application.catalog import CatalogService
-from app.application.ingestion import IngestionService
-from app.application.jobs import JobService
-from app.domain.models import AppError
-from app.infrastructure.bootstrap import bootstrap
-from app.infrastructure.config import Settings
-from app.infrastructure.database import database
-from app.infrastructure.model import HttpModel
-from app.infrastructure.sources import HttpSourceFetcher
-from app.presentation.api import router
-from app.presentation.contracts import SPEC
-
-
-async def build_services(settings):
-    engine, factory = database(settings.database_url)
-    security = await bootstrap(factory, settings)
-    catalog = CatalogService(factory)
-    model = HttpModel(factory, settings)
-    return engine, {
-        "auth": AuthService(factory, security, settings.demo_data),
-        "catalog": catalog,
-        "jobs": JobService(factory, catalog),
-        "analytics": AnalyticsService(factory, model),
-        "ingestion": IngestionService(factory, HttpSourceFetcher()),
-    }
+from app.api.v1.router import router
+from app.core.config import Settings
+from app.core.dependencies import build_services
+from app.core.exceptions import AppError
+from app.schemas.contracts import SPEC
 
 
 def create_app(settings=None):

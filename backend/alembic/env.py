@@ -2,9 +2,10 @@ import asyncio
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
+import app.models  # noqa: F401 -- register mapped tables before inspecting metadata
 from alembic import context
-from app.infrastructure.config import Settings
-from app.infrastructure.database import Base
+from app.core.config import Settings
+from app.db.base import Base
 
 
 def run(connection):

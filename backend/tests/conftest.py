@@ -3,8 +3,9 @@ import os
 import httpx
 import pytest_asyncio
 
-from app.infrastructure.config import Settings
-from app.infrastructure.database import Base, database
+from app.core.config import Settings
+from app.db.base import Base
+from app.db.session import database
 from app.main import create_app
 
 
