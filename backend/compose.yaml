@@ -1,0 +1,85 @@
+name: alfa-pulse-backend
+x-app: &app
+  build: .
+  image: alfa-pulse-backend:local
+  environment: &environment
+    DATABASE_URL: postgresql+asyncpg://pulse:${POSTGRES_PASSWORD:-pulse-local-demo}@postgres:5432/pulse
+    SECRET_KEY: ${SECRET_KEY:-}
+    DEMO_DATA: ${DEMO_DATA:-true}
+    ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    LLM_BASE_URL: ${LLM_BASE_URL:-}
+    LLM_API_KEY: ${LLM_API_KEY:-}
+    LLM_MODEL_ID: ${LLM_MODEL_ID:-}
+    LLM_MODEL_FAMILY: ${LLM_MODEL_FAMILY:-GLM-5.3-Flash}
+    LLM_ALLOWED_MODEL_IDS: ${LLM_ALLOWED_MODEL_IDS:-}
+    LLM_INPUT_RUB_PER_MILLION: ${LLM_INPUT_RUB_PER_MILLION:-0}
+    LLM_OUTPUT_RUB_PER_MILLION: ${LLM_OUTPUT_RUB_PER_MILLION:-0}
+    LLM_DAILY_BUDGET_RUB: ${LLM_DAILY_BUDGET_RUB:-500}
+  volumes:
+    - ./data/sources.json:/app/data/sources.json:ro
+  networks:
+    - internal
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulse-local-demo}
+      POSTGRES_DB: pulse
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U pulse -d pulse]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+    restart: unless-stopped
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - 127.0.0.1:${API_PORT:-8000}:8000
+    networks:
+      internal:
+      edge:
+        aliases:
+          - pulse-api
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  worker:
+    <<: *app
+    command: [python, -m, app.worker]
+    networks:
+      - internal
+      - egress
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres-data:
+networks:
+  internal:
+    internal: true
+  edge:
+    name: alfa-pulse-edge
+  egress:

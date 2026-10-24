@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createApi } from '../src/lib/api.js';
+
+test('фронтенд-адаптер проходит полный сценарий с работающим backend и worker', { skip: !process.env.PULSE_E2E_URL, timeout: 120000 }, async () => {
+  const values = new Map();
+  const store = { getItem: k => values.get(k) ?? null, setItem: (k, v) => values.set(k, v), removeItem: k => values.delete(k) };
+  const client = createApi({ baseUrl: process.env.PULSE_E2E_URL + '/api/v1', storage: store, delay: () => new Promise(resolve => setTimeout(resolve, 100)) });
+  const email = `test-${crypto.randomUUID()}@example.com`;
+  await client.register(email, 'Example-password-321', 'Frontend E2E');
+  const bootstrap = await client.getBootstrap();
+  assert.equal(bootstrap.user.email, email);
+  assert(bootstrap.companies.length >= 3);
+  const company = bootstrap.companies[0];
+  const feed = await client.getFeed(company.id, 'cfo');
+  assert(feed.items.length);
+  const insight = await client.getInsight(company.id, feed.items[0].id);
+  assert(insight.sources.length);
+  assert(insight.contextReasons.length);
+  await client.feedback(company.id, insight.id, 'useful');
+  const answer = await client.ask(company.id, insight.id, 'Как изменится денежный поток?', []);
+  assert(answer.text.length);
+  assert((await client.getTrace(company.id)).steps.length >= 7);
+  const history = await client.getHistory(company.id);
+  assert(history.length);
+  await client.logout();
+  await client.login(email, 'Example-password-321');
+  const restored = await client.restoreDigest(company.id, history[0].id);
+  assert.equal(restored.items[0].id, feed.items[0].id);
+  await client.logout();
+  assert(!client.hasSession());
+});

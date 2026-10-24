@@ -1,0 +1,11 @@
+Alfa Pulse
+
+The frontend layout, HTML, CSS, icons and initial synthetic fixtures were supplied by the user in alfa-pulse.zip. They are used as the basis of the application. Original synthetic bank interpretations are not presented as verified bank reports.
+
+Python: PSF License. FastAPI: MIT. Starlette: BSD-3-Clause. Uvicorn: BSD-3-Clause. SQLAlchemy: MIT. asyncpg: Apache-2.0. Alembic: MIT. Pydantic and pydantic-settings: MIT. PyJWT: MIT. pwdlib: MIT. argon2-cffi: MIT. HTTPX: BSD-3-Clause. python-multipart: Apache-2.0. jsonschema: MIT. pypdf: BSD-3-Clause. defusedxml: PSF License.
+
+PostgreSQL: PostgreSQL License. nginx and nginx-unprivileged container: BSD-style licenses. uv: MIT OR Apache-2.0. pytest: MIT. pytest-asyncio: Apache-2.0. Ruff: MIT. PyYAML: MIT. openapi-spec-validator: Apache-2.0. Node.js: MIT and bundled third-party notices. Caddy is only an optional configuration example, Apache-2.0.
+
+Resolved Python dependency versions and artifact hashes are recorded in backend/uv.lock. The frontend has no runtime package dependencies. Container tags are declared in their Dockerfiles and Compose files; pin image digests in your release process for fully immutable deployment.
+
+No original client CSV data, complete bank reports, LLM weights or provider credentials are redistributed. The implementation does not call external autonomous agents. Permitted model identifiers must be configured to correspond to the case's approved model families.

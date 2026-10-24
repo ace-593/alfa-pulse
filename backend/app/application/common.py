@@ -68,5 +68,9 @@ def page(items: list[Document], limit: int, cursor: str | None, scope: str) -> D
         except (ValueError, KeyError, TypeError) as exc:
             raise AppError(400, "INVALID_CURSOR", "Курсор не соответствует запросу") from exc
     end = offset + limit
-    next_cursor = base64.urlsafe_b64encode(json.dumps({"scope": scope, "offset": end}).encode()).decode() if end < len(items) else None
+    next_cursor = (
+        base64.urlsafe_b64encode(json.dumps({"scope": scope, "offset": end}).encode()).decode()
+        if end < len(items)
+        else None
+    )
     return {"items": public(items[offset:end]), "nextCursor": next_cursor}
