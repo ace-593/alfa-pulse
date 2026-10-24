@@ -116,7 +116,7 @@ class AnalyticsService:
                 "companyId": job.get("companyId"),
                 "_owner": job["_owner"],
                 "steps": [],
-                "modelIds": [self.model.model_id] if self.model.enabled else [],
+                "modelIds": [],
                 "inputTokens": 0,
                 "outputTokens": 0,
             }
@@ -138,12 +138,18 @@ class AnalyticsService:
     async def complete(self, job, task, context):
         result = await self.model.complete(task, context)
         usage = result.pop("_usage", {})
+        routing = result.pop("_routing", {})
+        model_id = routing.get("modelId", self.model.model_id)
         async with self.uow() as uow:
             trace = await uow.resources.get("trace", job["_runId"])
             if trace:
+                if model_id not in trace["modelIds"]:
+                    trace["modelIds"].append(model_id)
                 for name in ["inputTokens", "outputTokens"]:
                     trace[name] += max(0, int(usage.get(name, 0)))
                 await uow.resources.put("trace", trace["id"], trace)
+        if routing:
+            await self.step(job, "planning", f"LLM: {model_id}. {routing['reason']}")
         return result
 
     async def model_claim(self, task, context, sources, features, job):
